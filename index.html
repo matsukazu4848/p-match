@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#48B3FF">
+<title>P-MATCH — ランニング仲間マッチング プロトタイプ</title>
+<style>
+:root{
+  --blue:#48B3FF;        /* 実素材のブルー */
+  --sky:#8AD2F5;
+  --ink:#1B2B3A;
+  --muted:#8AA0B4;
+  --pink:#F76C8E;
+  --border:#CFE9FB;
+  --navy:#16242F;        /* 走行画面の数字色 */
+  --shadow:0 18px 50px rgba(34,90,140,.28);
+  --font:"Hiragino Kaku Gothic ProN","Hiragino Kaku Gothic Pro","Hiragino Sans",-apple-system,"Yu Gothic","Noto Sans JP",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  font-family:var(--font);
+  background:radial-gradient(1200px 700px at 50% -10%,#cfeeff 0%,#eaf6fe 35%,#dbeefb 100%);
+  color:var(--ink);display:flex;align-items:center;justify-content:center;
+  min-height:100vh;padding:24px 12px;gap:40px;
+}
+.pitch{max-width:300px;display:none}
+@media(min-width:900px){.pitch{display:block}}
+.pitch h1{font-size:30px;font-weight:800;letter-spacing:-.5px;line-height:1.15;margin-bottom:6px;color:#16527d}
+.pitch h1 span{color:var(--blue)}
+.pitch p{font-size:14px;line-height:1.8;color:#3f6c8f;margin-bottom:14px}
+.pitch .tag{display:inline-block;font-size:12px;font-weight:700;background:#fff;border:1.5px solid var(--border);color:#2E97EA;padding:5px 11px;border-radius:999px;margin:0 6px 6px 0}
+.pitch .hint{margin-top:18px;font-size:12px;color:#6b8aa6;line-height:1.7}
+
+/* ===== PHONE ===== */
+.phone{position:relative;width:390px;height:844px;flex:none;background:#fff;border-radius:46px;box-shadow:var(--shadow);border:10px solid #11212f;overflow:hidden}
+.notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:150px;height:30px;background:#11212f;border-radius:0 0 18px 18px;z-index:60}
+.statusbar{position:absolute;top:0;left:0;right:0;height:46px;display:flex;align-items:center;justify-content:space-between;padding:0 26px;font-size:13px;font-weight:700;color:#fff;z-index:55;pointer-events:none}
+.statusbar.dark{color:var(--ink)}
+.statusbar .dots{display:flex;gap:4px;align-items:center}
+.statusbar .bar{width:17px;height:11px;border:1.5px solid currentColor;border-radius:3px;position:relative;opacity:.9}
+.statusbar .bar::after{content:"";position:absolute;right:-3px;top:3px;width:2px;height:4px;background:currentColor;border-radius:1px}
+
+.viewport{position:absolute;inset:0;overflow:hidden}
+.screen{position:absolute;inset:0;background:#fff;transform:translateX(100%);transition:transform .32s cubic-bezier(.4,0,.2,1);will-change:transform;overflow:hidden}
+.screen.active{transform:translateX(0)}
+.screen.fade{transform:none;opacity:0;transition:opacity .3s;pointer-events:none}
+.screen.fade.active{opacity:1;pointer-events:auto}
+
+/* image-backed screens = Figma実スクリーンそのまま */
+.screen.img{background-size:cover;background-position:center top;background-repeat:no-repeat}
+
+/* transparent interaction hotspots over the real pixels */
+.hot{position:absolute;background:transparent;border:none;padding:0;margin:0;cursor:pointer;font:inherit;z-index:3}
+.viewport.dbg .hot{background:rgba(255,40,40,.28);outline:1px solid red}
+
+/* shared bottom-nav hotspots (nav bar is baked into each main screen image) */
+.navhot{position:absolute;left:0;right:0;bottom:0;height:9%;display:none;z-index:8}
+.navhot.show{display:flex}
+.navhot .nz{flex:1;cursor:pointer}
+.viewport.dbg .navhot .nz{background:rgba(40,120,255,.22);outline:1px solid #06f}
+
+/* ===== RUNNING (real image + live overlays) ===== */
+#running{background:var(--blue)}
+/* live values sit in opaque flat-blue boxes that fully cover the baked 0.00/00:00/0:00 */
+.runov{position:absolute;color:var(--navy);font-weight:800;z-index:4;pointer-events:none;background:var(--blue);display:flex;align-items:center;justify-content:center}
+#ovDist{left:14%;top:28%;width:72%;height:14%;font-size:88px;letter-spacing:-3px}
+#ovTime{left:8%;top:70.2%;width:36%;height:7.6%;font-size:34px;letter-spacing:-1px}
+#ovPace{left:60%;top:70.2%;width:32%;height:7.6%;font-size:34px;letter-spacing:-1px}
+.runhot{position:absolute;z-index:5;cursor:pointer}
+#hotPause{left:36%;top:50%;width:28%;height:12%}
+#hotFinish{left:24%;top:84%;width:52%;height:7%;position:relative;overflow:hidden;border-radius:999px}
+#finProg{position:absolute;inset:0;background:rgba(17,33,47,.28);width:0;z-index:1}
+.runmap-handle{position:absolute;left:0;right:0;bottom:11px;text-align:center;color:rgba(255,255,255,.95);font-weight:800;font-size:13px;letter-spacing:1.5px;cursor:pointer;z-index:6;touch-action:none;user-select:none}
+.runmap-handle .c{display:block;font-size:24px;font-weight:900;line-height:.5;margin-bottom:5px;animation:bob 1.5s ease-in-out infinite}
+@keyframes bob{0%,100%{transform:translateY(0);opacity:.55}50%{transform:translateY(-7px);opacity:1}}
+.runmap{position:absolute;inset:0;transform:translateY(100%);transition:transform .34s cubic-bezier(.4,0,.2,1);z-index:20;background:#dfe7db}
+.runmap.open{transform:translateY(0)}
+.runmap-map{position:absolute;inset:0;background:#dfe7db url('assets/map.png') no-repeat center;background-size:cover}
+.runmap-top{position:absolute;top:0;left:0;right:0;padding:50px 16px 22px;background:linear-gradient(180deg,var(--blue) 30%,rgba(72,179,255,0));color:#fff;display:flex;align-items:center;justify-content:space-between;font-weight:700;font-size:14px}
+.runmap-close{background:rgba(255,255,255,.95);color:#2E97EA;border:none;border-radius:999px;padding:8px 16px;font-weight:800;font-size:13px;cursor:pointer;font-family:var(--font);flex:none}
+
+/* ===== CHAT THREAD (live HTML overlay) ===== */
+.hdr{background:var(--sky);color:#fff;padding:54px 20px 16px;flex:none;position:relative;display:flex;align-items:center;justify-content:center}
+.hdr h2{font-size:24px;font-weight:800;letter-spacing:3px}
+.hdr .back{position:absolute;left:16px;bottom:14px;background:#fff;color:var(--blue);font-size:13px;font-weight:800;padding:6px 14px;border-radius:999px;border:none;cursor:pointer}
+#chat{display:flex;flex-direction:column}
+#chatBody{flex:1;overflow-y:auto;padding:14px 14px;display:flex;flex-direction:column;gap:10px;background:#fff}
+#chatBody::-webkit-scrollbar{width:0}
+.match-banner{background:var(--blue);color:#fff;text-align:center;font-weight:800;font-size:15px;padding:10px;border-radius:14px;margin-bottom:4px}
+.bub{max-width:74%;padding:11px 15px;border-radius:18px;font-size:14px;font-weight:500;line-height:1.5;word-break:break-word}
+.bub.them{background:#EEF2F5;color:var(--ink);align-self:flex-start;border-bottom-left-radius:5px}
+.bub.me{background:var(--blue);color:#fff;align-self:flex-end;border-bottom-right-radius:5px}
+.bub.name{font-size:11px;color:var(--muted);font-weight:700;background:none;padding:0 4px;align-self:flex-start}
+.chat-input{flex:none;display:flex;gap:8px;align-items:center;padding:10px 12px;border-top:1px solid #eef4f8;background:#fff}
+.chat-input input{flex:1;border:2px solid var(--border);border-radius:999px;padding:11px 16px;font-size:14px;font-family:var(--font);outline:none}
+.chat-input input:focus{border-color:var(--blue)}
+.chat-input button{width:44px;height:44px;border-radius:50%;border:none;background:var(--blue);color:#fff;font-size:18px;cursor:pointer;flex:none}
+
+/* ===== SETTING (no Figma asset exists → HTML, Hiragino) ===== */
+#setting{display:flex;flex-direction:column}
+#setting .body{flex:1;overflow-y:auto;padding:18px 18px 90px}
+.set-group{margin-bottom:22px}
+.set-group .gl{font-size:12px;color:var(--muted);font-weight:800;margin:0 4px 8px}
+.set-row{display:flex;align-items:center;gap:12px;padding:15px;border:2px solid var(--border);border-radius:14px;margin-bottom:10px;font-weight:700;font-size:15px}
+.set-row .sw{width:46px;height:26px;border-radius:999px;background:#cdd9e3;position:relative;margin-left:auto;cursor:pointer;flex:none;transition:background .2s}
+.set-row .sw::after{content:"";position:absolute;top:2px;left:2px;width:22px;height:22px;border-radius:50%;background:#fff;transition:left .2s}
+.set-row .sw.on{background:#3DD08A}
+.set-row .sw.on::after{left:22px}
+.set-row .chev{margin-left:auto;color:var(--muted)}
+.ver{text-align:center;color:var(--muted);font-size:12px;font-weight:700;margin-top:10px}
+
+/* toast */
+.toast{position:absolute;bottom:96px;left:50%;transform:translateX(-50%) translateY(20px);background:#11212f;color:#fff;padding:12px 22px;border-radius:999px;font-weight:800;font-size:14px;z-index:90;opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;white-space:nowrap;max-width:90%}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.reset{position:fixed;bottom:14px;right:16px;font-size:11px;color:#7796b0;background:#fff;border:1px solid var(--border);padding:6px 12px;border-radius:999px;cursor:pointer;font-weight:700;z-index:200}
+</style>
+</head>
+<body>
+
+<div class="pitch">
+  <h1><span>P-MATCH</span><br>走る仲間と、出会う。</h1>
+  <p>位置情報でランニング仲間を見つけ、誘い合って一緒に走り、記録を分かち合う。各画面は Figma の実スクリーンをそのまま使用しています。</p>
+  <div>
+    <span class="tag">仲間マッチング</span><span class="tag">一緒に走る</span>
+    <span class="tag">走行トラッカー</span><span class="tag">ストリーク</span><span class="tag">フィード</span>
+  </div>
+  <div class="hint">▶ 下のタブで移動。Run のシートを上スワイプ/タップでスタート、走行画面は数字が進み「長押しで終了」、走行中は下の「スライドで地図」で地図が開きます。</div>
+</div>
+
+<div class="phone">
+  <div class="notch"></div>
+  <div class="statusbar" id="statusbar">
+    <span id="clock">9:41</span>
+    <span class="dots"><span style="font-size:11px">●●●</span><span style="font-weight:800">5G</span><span class="bar"></span></span>
+  </div>
+
+  <div class="viewport" id="viewport">
+
+    <!-- HOME (実スクリーン) -->
+    <section class="screen img active" id="home" style="background-image:url('assets/home.png')">
+      <button class="hot" style="left:10%;top:10.2%;width:47%;height:6%" onclick="toast('走る宣言をしました！🔥')" aria-label="走る宣言する"></button>
+      <button class="hot" style="left:79%;top:31%;width:17%;height:8%" onclick="go('notif')" aria-label="通知"></button>
+      <button class="hot" style="left:79%;top:43%;width:17%;height:8%" onclick="go('find')" aria-label="仲間を探す"></button>
+      <button class="hot" style="left:79%;top:54%;width:17%;height:8%" onclick="go('chatlist')" aria-label="チャット"></button>
+      <button class="hot" style="left:8%;top:79%;width:41%;height:6.5%" onclick="toast('ラン設定を開きました')" aria-label="ラン設定"></button>
+      <button class="hot" style="left:52%;top:79%;width:41%;height:6.5%" onclick="go('find')" aria-label="仲間を探す"></button>
+    </section>
+
+    <!-- FEED (実スクリーン) -->
+    <section class="screen img" id="feed" style="background-image:url('assets/feed.png')">
+      <button class="hot" style="left:80%;top:18%;width:16%;height:6%" onclick="toast('いいね！👍')"></button>
+      <button class="hot" style="left:80%;top:31%;width:16%;height:6%" onclick="toast('いいね！👍')"></button>
+      <button class="hot" style="left:80%;top:44%;width:16%;height:6%" onclick="toast('いいね！👍')"></button>
+      <button class="hot" style="left:80%;top:57%;width:16%;height:6%" onclick="toast('いいね！👍')"></button>
+    </section>
+
+    <!-- RUN (実スクリーン: 地図＋スライド) -->
+    <section class="screen img" id="run" style="background-image:url('assets/run.png')">
+      <button class="hot" style="left:27%;top:71%;width:46%;height:6.5%" onclick="toggleTogether()" aria-label="いっしょに走る"></button>
+      <div class="hot" id="startSheet" style="left:3%;top:79%;width:94%;height:13%" role="button" aria-label="スライドしてスタート"></div>
+    </section>
+
+    <!-- RECORD (実スクリーン) -->
+    <section class="screen img" id="record" style="background-image:url('assets/record.png')"></section>
+
+    <!-- SETTING (HTML) -->
+    <section class="screen" id="setting">
+      <div class="hdr"><button class="back" onclick="back('home')">戻る</button><h2>設定</h2></div>
+      <div class="body">
+        <div class="set-group"><div class="gl">アカウント</div>
+          <div class="set-row">プロフィール編集 <span class="chev">›</span></div>
+          <div class="set-row">ランナーレベル <span class="chev">中級 ›</span></div>
+          <div class="set-row">公開エリア <span class="chev">千葉・津田沼 ›</span></div>
+        </div>
+        <div class="set-group"><div class="gl">通知</div>
+          <div class="set-row">誘いを受け取る <span class="sw on" onclick="this.classList.toggle('on')"></span></div>
+          <div class="set-row">フィードのいいね <span class="sw on" onclick="this.classList.toggle('on')"></span></div>
+          <div class="set-row">マルチランの招待 <span class="sw" onclick="this.classList.toggle('on')"></span></div>
+        </div>
+        <div class="set-group"><div class="gl">その他</div>
+          <div class="set-row">ヘルプ <span class="chev">›</span></div>
+          <div class="set-row">利用規約 <span class="chev">›</span></div>
+        </div>
+        <div class="ver">P-MATCH prototype v0.2 ・ Figma実スクリーン使用</div>
+      </div>
+    </section>
+
+    <!-- FIND (実スクリーン) -->
+    <section class="screen img" id="find" style="background-image:url('assets/find.png')">
+      <button class="hot" style="left:4%;top:10%;width:18%;height:7%" onclick="back('home')" aria-label="戻る"></button>
+      <button class="hot" style="left:64%;top:24.5%;width:24%;height:5.5%" onclick="invite(this,'田中')"></button>
+      <button class="hot" style="left:64%;top:42%;width:24%;height:5.5%" onclick="invite(this,'鈴木')"></button>
+      <button class="hot" style="left:64%;top:59.5%;width:24%;height:5.5%" onclick="invite(this,'佐藤')"></button>
+      <button class="hot" style="left:64%;top:77%;width:24%;height:5.5%" onclick="invite(this,'高橋')"></button>
+    </section>
+
+    <!-- NOTIF (実スクリーン) -->
+    <section class="screen img" id="notif" style="background-image:url('assets/notif.png')">
+      <button class="hot" style="left:4%;top:10%;width:18%;height:7%" onclick="back('home')" aria-label="戻る"></button>
+      <button class="hot" style="left:27%;top:20.5%;width:20%;height:4.6%" onclick="approve(this,'田中')"></button>
+      <button class="hot" style="left:27%;top:34.2%;width:20%;height:4.6%" onclick="approve(this,'鈴木')"></button>
+      <button class="hot" style="left:27%;top:47.9%;width:20%;height:4.6%" onclick="approve(this,'佐藤')"></button>
+      <button class="hot" style="left:27%;top:61.6%;width:20%;height:4.6%" onclick="approve(this,'高橋')"></button>
+    </section>
+
+    <!-- CHAT LIST (実スクリーン) -->
+    <section class="screen img" id="chatlist" style="background-image:url('assets/chatlist.png')">
+      <button class="hot" style="left:4%;top:10%;width:18%;height:7%" onclick="back('home')" aria-label="戻る"></button>
+      <button class="hot" style="left:5%;top:23%;width:90%;height:10%" onclick="openChat('hayata')"></button>
+      <button class="hot" style="left:5%;top:35%;width:90%;height:10%" onclick="openChat('misaki')"></button>
+    </section>
+
+    <!-- CHAT THREAD (live HTML) -->
+    <section class="screen" id="chat">
+      <div class="hdr"><button class="back" onclick="back('chatlist')">戻る</button><h2 id="chatTitle">チャット</h2></div>
+      <div id="chatBody"></div>
+      <div class="chat-input">
+        <input id="chatInput" placeholder="メッセージを入力" autocomplete="off">
+        <button onclick="sendMsg()" aria-label="送信">➤</button>
+      </div>
+    </section>
+
+    <!-- RUNNING (実スクリーン + ライブ数字オーバーレイ) -->
+    <section class="screen fade" id="running" style="background-image:url('assets/running.png');background-size:cover;background-position:center top">
+      <div class="runov" id="ovDist">0.00</div>
+      <div class="runov" id="ovTime">00:00</div>
+      <div class="runov" id="ovPace">0:00</div>
+      <div class="runhot" id="hotPause" onclick="togglePause()"></div>
+      <div class="runhot" id="hotFinish"><div id="finProg"></div></div>
+      <div class="runmap-handle" id="runmapHandle"><span class="c">︿</span>スライドで地図</div>
+      <div class="runmap" id="runmap">
+        <div class="runmap-map"></div>
+        <div class="runmap-top"><span><b id="rmPartner">○○</b>さんと走行中 · <span id="rmDist">0.00</span>km</span>
+          <button class="runmap-close" id="runmapClose">﹀ 閉じる</button></div>
+      </div>
+    </section>
+
+    <!-- NICE WORK (実スクリーン) -->
+    <section class="screen img fade" id="nicework" style="background-image:url('assets/nicework.png')">
+      <button class="hot" style="left:14%;top:74.5%;width:33%;height:6%" onclick="friendYes()" aria-label="はい"></button>
+      <button class="hot" style="left:53%;top:74.5%;width:33%;height:6%" onclick="friendNo()" aria-label="いいえ"></button>
+    </section>
+
+  </div>
+
+  <!-- shared bottom-nav hotspots (over baked nav bar) -->
+  <div class="navhot show" id="navHot">
+    <div class="nz" onclick="go('home')"></div>
+    <div class="nz" onclick="go('feed')"></div>
+    <div class="nz" onclick="go('run')"></div>
+    <div class="nz" onclick="go('record')"></div>
+    <div class="nz" onclick="go('setting')"></div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<div class="reset" onclick="location.reload()">↺ 最初から</div>
+
+<script>
+const PARTNERS=["ハヤタ","サイトウ","タナカ","ミサキ","ユウト"];
+const chats={
+  hayata:{nm:"ハヤタ",msgs:[{who:"them",t:"はじめまして！"},{who:"me",t:"よろしくお願いします！"},{who:"them",t:"また走りしょー！"}]},
+  misaki:{nm:"ミサキ",msgs:[{who:"them",t:"はじめまして！"}]}
+};
+
+/* ---- navigation ---- */
+const mainTabs=["home","feed","run","record","setting"];
+let current="home";
+function go(id){
+  if(current===id) return;
+  const nxt=document.getElementById(id);
+  document.querySelectorAll('.screen').forEach(s=>{ if(s!==nxt) s.classList.remove('active'); });
+  nxt.classList.add('active');
+  current=id;
+  // bottom-nav hotspots only on main image screens (nav baked into those)
+  document.getElementById('navHot').classList.toggle('show', ["home","feed","run","record"].includes(id));
+  // status bar contrast: dark text on white-top screens
+  document.getElementById('statusbar').classList.toggle('dark', id==='home'||id==='record');
+  if(id==='running'){ closeRunMap(); }
+}
+function back(to){ go(to); }
+
+/* ---- toast ---- */
+let toastT;
+function toast(m){ const e=document.getElementById('toast'); e.textContent=m; e.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>e.classList.remove('show'),1900); }
+
+/* ---- find / notif feedback ---- */
+const invited=new Set();
+function invite(btn,nm){ if(invited.has(nm))return; invited.add(nm); toast(nm+'さんを走りに誘いました！'); }
+const approved=new Set();
+function approve(btn,nm){ if(approved.has(nm))return; approved.add(nm); toast(nm+'さんの誘いを承認しました！'); }
+
+/* ---- いっしょに走る ---- */
+let together=true;
+function toggleTogether(){ together=!together; toast(together?'いっしょに走る：ON':'ひとりで走る'); }
+
+/* ---- swipe up to start ---- */
+function initStartSheet(){
+  const sheet=document.getElementById('startSheet');
+  let dragging=false,startY=0,dy=0;
+  function down(e){ dragging=true; startY=(e.touches?e.touches[0].clientY:e.clientY); dy=0; e.preventDefault(); }
+  function move(e){ if(!dragging)return; const y=(e.touches?e.touches[0].clientY:e.clientY); dy=Math.min(0,y-startY); }
+  function up(){ if(!dragging)return; dragging=false; if(-dy>50) startRun(); }
+  sheet.addEventListener('mousedown',down); sheet.addEventListener('touchstart',down,{passive:false});
+  window.addEventListener('mousemove',move); window.addEventListener('touchmove',move,{passive:false});
+  window.addEventListener('mouseup',up); window.addEventListener('touchend',up);
+  sheet.addEventListener('click',()=>{ if(Math.abs(dy)<6) startRun(); });
+}
+
+/* ---- run engine ---- */
+let runTimer=null,elapsed=0,paused=false,distance=0,runPartnerName="○○";
+function startRun(){
+  runPartnerName = together ? PARTNERS[Math.floor(Math.random()*PARTNERS.length)] : "ひとり";
+  document.getElementById('rmPartner').textContent=(runPartnerName==='ひとり')?'ひとり':runPartnerName;
+  elapsed=0; distance=0; paused=false; closeRunMap(); updateRunUI();
+  go('running');
+  clearInterval(runTimer); runTimer=setInterval(tick,200);
+}
+function tick(){ if(paused)return; elapsed+=0.2; distance+=0.0016; updateRunUI(); }
+function updateRunUI(){
+  document.getElementById('ovDist').textContent=distance.toFixed(2);
+  const m=Math.floor(elapsed/60),s=Math.floor(elapsed%60);
+  document.getElementById('ovTime').textContent=String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+  let pace="0:00";
+  if(distance>0.01){ const p=elapsed/60/distance; const pm=Math.floor(p),ps=Math.floor((p-pm)*60); pace=pm+':'+String(ps).padStart(2,'0'); }
+  document.getElementById('ovPace').textContent=pace;
+  document.getElementById('rmDist').textContent=distance.toFixed(2);
+}
+function togglePause(){ paused=!paused; toast(paused?'一時停止':'再開'); }
+
+/* ---- long press finish ---- */
+function initFinish(){
+  const btn=document.getElementById('hotFinish'),prog=document.getElementById('finProg');
+  let t0=0,raf=null,hold=false; const DUR=1100;
+  function start(e){ hold=true; t0=performance.now(); e.preventDefault(); loop(); }
+  function loop(){ if(!hold)return; const p=Math.min(1,(performance.now()-t0)/DUR); prog.style.width=(p*100)+'%';
+    if(p>=1){ hold=false; prog.style.width='0'; finishRun(); return; } raf=requestAnimationFrame(loop); }
+  function end(){ hold=false; cancelAnimationFrame(raf); prog.style.width='0'; }
+  btn.addEventListener('mousedown',start); btn.addEventListener('touchstart',start,{passive:false});
+  window.addEventListener('mouseup',end); window.addEventListener('touchend',end);
+}
+function finishRun(){
+  clearInterval(runTimer); closeRunMap();
+  if(runPartnerName!=="ひとり") go('nicework');
+  else { go('run'); toast('おつかれさま！'+distance.toFixed(2)+'km 走りました🏃'); }
+}
+function friendYes(){ toast(runPartnerName+'さんにフレンド申請を送りました！'); go('home'); }
+function friendNo(){ go('home'); }
+
+/* ---- run: swipe up to open map ---- */
+function openRunMap(){ document.getElementById('rmDist').textContent=distance.toFixed(2); document.getElementById('runmap').classList.add('open'); }
+function closeRunMap(){ const m=document.getElementById('runmap'); if(m) m.classList.remove('open'); }
+function initRunMap(){
+  const handle=document.getElementById('runmapHandle'),sheet=document.getElementById('runmap');
+  document.getElementById('runmapClose').addEventListener('click',e=>{ e.stopPropagation(); closeRunMap(); });
+  let sy=0,drag=false;
+  function hd(e){ drag=true; sy=(e.touches?e.touches[0].clientY:e.clientY); e.preventDefault(); }
+  function hm(e){ if(!drag)return; const y=(e.touches?e.touches[0].clientY:e.clientY); if(sy-y>44){ drag=false; openRunMap(); } }
+  function hu(){ drag=false; }
+  handle.addEventListener('mousedown',hd); handle.addEventListener('touchstart',hd,{passive:false});
+  window.addEventListener('mousemove',hm); window.addEventListener('touchmove',hm,{passive:false});
+  window.addEventListener('mouseup',hu); window.addEventListener('touchend',hu);
+  handle.addEventListener('click',openRunMap);
+  let my=0,md=false;
+  sheet.addEventListener('touchstart',e=>{ my=e.touches[0].clientY; md=true; },{passive:true});
+  sheet.addEventListener('touchmove',e=>{ if(md&&e.touches[0].clientY-my>56){ md=false; closeRunMap(); } },{passive:true});
+}
+
+/* ---- chat ---- */
+let activeChat="hayata";
+function openChat(k){ activeChat=k; document.getElementById('chatTitle').textContent=chats[k].nm; renderChat(); go('chat'); }
+function renderChat(){
+  const c=chats[activeChat]; let html=`<div class="match-banner">${c.nm}さんとマッチングしました！</div>`; let last=null;
+  c.msgs.forEach(m=>{ if(m.who==='them'&&last!=='them') html+=`<div class="bub name">${c.nm}</div>`; html+=`<div class="bub ${m.who}">${m.t}</div>`; last=m.who; });
+  const b=document.getElementById('chatBody'); b.innerHTML=html; b.scrollTop=b.scrollHeight;
+}
+function sendMsg(){
+  const inp=document.getElementById('chatInput'); const v=inp.value.trim(); if(!v)return;
+  chats[activeChat].msgs.push({who:'me',t:v}); inp.value=''; renderChat();
+  const r=["いいね！","了解です🏃","何時に集合する？","じゃあ津田沼駅で！","ありがとう！"];
+  setTimeout(()=>{ chats[activeChat].msgs.push({who:'them',t:r[Math.floor(Math.random()*r.length)]}); renderChat(); },1100);
+}
+document.addEventListener('keydown',e=>{ if(e.key==='Enter'&&document.activeElement.id==='chatInput') sendMsg(); });
+
+/* ---- clock ---- */
+function clock(){ const d=new Date(); document.getElementById('clock').textContent=d.getHours()+':'+String(d.getMinutes()).padStart(2,'0'); }
+
+/* debug: outline hotspots */
+function dbg(){ document.getElementById('viewport').classList.toggle('dbg'); }
+
+/* ---- init ---- */
+renderChat(); initStartSheet(); initFinish(); initRunMap(); clock(); setInterval(clock,10000); go('home');
+</script>
+</body>
+</html>
